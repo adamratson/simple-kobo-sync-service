@@ -7,14 +7,17 @@ Tested on firmware 4.45 (Kobo Clara Colour). Should work on 4.36+.
 ## Quick start (Docker)
 
 ```sh
-KOBO_TOKEN=$(openssl rand -hex 8) EPUB_DIR=/path/to/your/epubs docker compose up -d
+KOBO_TOKEN=$(openssl rand -hex 8) \
+KOBO_EXTERNAL_URL=http://{your-ip}:8080 \
+EPUB_DIR=/path/to/your/epubs \
+docker compose up -d
 ```
 
 The server logs the exact line to put in your Kobo config on startup:
 
 ```
 set in .kobo/Kobo/Kobo eReader.conf under [OneStoreServices]
-api_endpoint=http://192.168.1.50:8080/kobo/<token>
+api_endpoint=http://{your-ip}:8080/kobo/<token>
 ```
 
 ## Kobo device setup
@@ -33,7 +36,7 @@ api_endpoint=http://192.168.1.50:8080/kobo/<token>
 | Variable | Default | Required | Description |
 | --- | --- | --- | --- |
 | `KOBO_TOKEN` | — | **Yes** | Secret token embedded in all API paths. Generate with `openssl rand -hex 8`. |
-| `KOBO_EXTERNAL_URL` | auto-detected | No | Full base URL the Kobo device can reach, e.g. `http://192.168.1.50:8080`. Auto-detection works for bare-metal and Docker with `network_mode: host`. Set explicitly if auto-detection picks the wrong interface. |
+| `KOBO_EXTERNAL_URL` | — | **Yes** | Full base URL the Kobo device can reach, e.g. `http://192.168.0.171:8080`. |
 | `KOBO_EPUB_DIR` | `.` | No | Directory containing `.epub` files to serve. |
 | `KOBO_ADDR` | `:8080` | No | Listen address, e.g. `0.0.0.0:9000`. |
 | `KOBO_DEBUG` | unset | No | Set to any non-empty value to log all request headers and bodies for unmapped endpoints. |

@@ -49,16 +49,3 @@ func TestRandomToken_unique(t *testing.T) {
 	}
 }
 
-func TestExtractPort(t *testing.T) {
-	cases := []struct{ addr, want string }{
-		{":8080", "8080"},
-		{"0.0.0.0:9000", "9000"},
-		{"127.0.0.1:80", "80"},
-		{"invalid", "8080"},
-	}
-	for _, tc := range cases {
-		if got := extractPort(tc.addr); got != tc.want {
-			t.Errorf("extractPort(%q): want %q, got %q", tc.addr, tc.want, got)
-		}
-	}
-}

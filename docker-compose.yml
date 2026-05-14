@@ -1,11 +1,12 @@
 services:
   kobo-sync:
     image: ghcr.io/adamratson/simple-kobo-sync-service:latest
-    network_mode: host
+    ports:
+      - "8080:8080"
     environment:
       KOBO_TOKEN: ${KOBO_TOKEN:?KOBO_TOKEN must be set}
+      KOBO_EXTERNAL_URL: ${KOBO_EXTERNAL_URL:?KOBO_EXTERNAL_URL must be set, e.g. 192.168.0.3}
       KOBO_EPUB_DIR: /data/epubs
-      # KOBO_EXTERNAL_URL: http://192.168.1.50:8080  # optional: auto-detected via host networking
     volumes:
       - ${EPUB_DIR:-./epubs}:/data/epubs:ro
     restart: unless-stopped
