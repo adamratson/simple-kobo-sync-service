@@ -70,20 +70,14 @@ func randomToken() string {
 }
 
 func detectLANIP() string {
-	addrs, err := net.InterfaceAddrs()
+	// Dial a UDP address without sending anything — the OS routing table picks
+	// the outbound interface, giving us the LAN IP rather than a Docker bridge.
+	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		return "YOUR_LAN_IP"
 	}
-	for _, a := range addrs {
-		ipnet, ok := a.(*net.IPNet)
-		if !ok || ipnet.IP.IsLoopback() {
-			continue
-		}
-		if ip4 := ipnet.IP.To4(); ip4 != nil {
-			return ip4.String()
-		}
-	}
-	return "YOUR_LAN_IP"
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).IP.String()
 }
 
 func extractPort(addr string) string {
