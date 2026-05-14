@@ -58,6 +58,14 @@ func (s *server) routes() {
 	// unimplemented Kobo endpoint. Real handlers get registered above this line as we build them.
 	s.mux.HandleFunc("/kobo/{token}/", s.logged(s.authenticated(s.catchAll)))
 
+	// Explicit handler for /kobo/ without a token segment. Go 1.22's ServeMux returns a 301
+	// for this path without it, because it sees registered subtree patterns under /kobo/ and
+	// redirects instead of falling through to the root handler.
+	s.mux.HandleFunc("/kobo/", func(w http.ResponseWriter, r *http.Request) {
+		slog.Warn("request outside kobo prefix", "method", r.Method, "path", r.URL.RequestURI())
+		http.NotFound(w, r)
+	})
+
 	// Anything outside the token prefix gets a 404 with a helpful log line.
 	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("request outside kobo prefix", "method", r.Method, "path", r.URL.RequestURI())
