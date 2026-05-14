@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -69,15 +70,51 @@ func randomToken() string {
 	return hex.EncodeToString(b)
 }
 
+// virtualIfacePrefixes lists interface name prefixes that are never the right
+// choice for a LAN address: Docker bridges, VPN tunnels, VM networks, etc.
+var virtualIfacePrefixes = []string{
+	"docker", "br-", "veth", "virbr", "virt",
+	"tun", "tap", "utun",
+	"wg",         // WireGuard
+	"tailscale",  // Tailscale
+	"vmnet",      // VMware
+	"vboxnet",    // VirtualBox
+	"lo",
+}
+
 func detectLANIP() string {
-	// Dial a UDP address without sending anything — the OS routing table picks
-	// the outbound interface, giving us the LAN IP rather than a Docker bridge.
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+	ifaces, err := net.Interfaces()
 	if err != nil {
 		return "YOUR_LAN_IP"
 	}
-	defer conn.Close()
-	return conn.LocalAddr().(*net.UDPAddr).IP.String()
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if isVirtualIface(iface.Name) {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			if ip4 := ipnet.IP.To4(); ip4 != nil && !ip4.IsLinkLocalUnicast() {
+				return ip4.String()
+			}
+		}
+	}
+	return "YOUR_LAN_IP"
+}
+
+func isVirtualIface(name string) bool {
+	for _, prefix := range virtualIfacePrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractPort(addr string) string {
