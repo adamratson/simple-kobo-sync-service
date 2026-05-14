@@ -1,0 +1,11 @@
+services:
+  kobo-sync:
+    image: ghcr.io/${GITHUB_REPOSITORY:-your-user/simple-kobo-sync-service}:latest
+    network_mode: host
+    environment:
+      KOBO_TOKEN: ${KOBO_TOKEN:?KOBO_TOKEN must be set}
+      KOBO_EXTERNAL_URL: ${KOBO_EXTERNAL_URL:?KOBO_EXTERNAL_URL must be set, e.g. http://192.168.1.50:8080}
+      KOBO_EPUB_DIR: /data/epubs
+    volumes:
+      - ${EPUB_DIR:-./epubs}:/data/epubs:ro
+    restart: unless-stopped
