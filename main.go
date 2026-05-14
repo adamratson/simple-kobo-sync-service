@@ -32,7 +32,7 @@ func main() {
 		} else {
 			externalURL = fmt.Sprintf("http://%s:%s", ip, port)
 		}
-		slog.Warn("KOBO_EXTERNAL_URL not set — using auto-detected LAN address; this will not work inside a container",
+		slog.Warn("KOBO_EXTERNAL_URL not set — using auto-detected LAN address (only reliable with host networking)",
 			"external_url", externalURL)
 	}
 
