@@ -36,7 +36,7 @@ api_endpoint=http://{your-ip}:8080/kobo/<token>
 | Variable | Default | Required | Description |
 | --- | --- | --- | --- |
 | `KOBO_TOKEN` | — | **Yes** | Secret token embedded in all API paths. Generate with `openssl rand -hex 8`. |
-| `KOBO_EXTERNAL_URL` | — | **Yes** | Full base URL the Kobo device can reach, e.g. `http://192.168.0.171:8080`. |
+| `KOBO_EXTERNAL_URL` | — | **Yes** | Full base URL the Kobo device can reach, e.g. `http://192.168.0.3:8080`. |
 | `KOBO_EPUB_DIR` | `.` | No | Directory containing `.epub` files to serve. |
 | `KOBO_ADDR` | `:8080` | No | Listen address, e.g. `0.0.0.0:9000`. |
 | `KOBO_DEBUG` | unset | No | Set to any non-empty value to log all request headers and bodies for unmapped endpoints. |

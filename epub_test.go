@@ -266,3 +266,106 @@ func TestHandleDownload_notFound(t *testing.T) {
 		t.Errorf("want 404, got %d", w.Code)
 	}
 }
+
+func TestHandleLibraryMetadata_returnsArray(t *testing.T) {
+	dir := t.TempDir()
+	const bookUUID = "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb"
+	makeTestEPUB(t, dir, "test.epub", "Great Book", "Author", bookUUID)
+
+	srv := newServer(config{token: testToken, epubDir: dir, externalURL: testExternalURL})
+	req := httptest.NewRequest("GET", testBaseURL+"/v1/library/"+bookUUID+"/metadata", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	// Must be a JSON array — the critical shape the device requires.
+	body := strings.TrimSpace(w.Body.String())
+	if !strings.HasPrefix(body, "[") {
+		t.Fatalf("metadata response must be a JSON array, got: %s", body)
+	}
+	var items []bookMetadata
+	if err := json.NewDecoder(strings.NewReader(body)).Decode(&items); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want 1 item, got %d", len(items))
+	}
+	if items[0].Title != "Great Book" {
+		t.Errorf("Title: want %q, got %q", "Great Book", items[0].Title)
+	}
+	if items[0].EntitlementId != bookUUID {
+		t.Errorf("EntitlementId: want %q, got %q", bookUUID, items[0].EntitlementId)
+	}
+	if len(items[0].DownloadUrls) != 2 {
+		t.Errorf("DownloadUrls: want 2, got %d", len(items[0].DownloadUrls))
+	}
+}
+
+func TestHandleLibraryMetadata_notFound(t *testing.T) {
+	dir := t.TempDir()
+	srv := newServer(config{token: testToken, epubDir: dir, externalURL: testExternalURL})
+	req := httptest.NewRequest("GET", testBaseURL+"/v1/library/00000000-0000-0000-0000-000000000000/metadata", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("want 200, got %d", w.Code)
+	}
+	// Not-found returns {} (empty object) to keep the device happy.
+	var got any
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+}
+
+func TestScanEpubs_multipleBooks(t *testing.T) {
+	dir := t.TempDir()
+	makeTestEPUB(t, dir, "a.epub", "Book A", "Author A", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	makeTestEPUB(t, dir, "b.epub", "Book B", "Author B", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	makeTestEPUB(t, dir, "c.epub", "Book C", "Author C", "cccccccc-cccc-cccc-cccc-cccccccccccc")
+
+	books, err := scanEpubs(dir)
+	if err != nil {
+		t.Fatalf("scanEpubs: %v", err)
+	}
+	if len(books) != 3 {
+		t.Fatalf("want 3 books, got %d", len(books))
+	}
+}
+
+func TestScanEpubs_corruptFallsBackToFilename(t *testing.T) {
+	dir := t.TempDir()
+	// Write a file with .epub extension that is not a valid zip.
+	if err := os.WriteFile(filepath.Join(dir, "corrupt.epub"), []byte("not a zip"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	books, err := scanEpubs(dir)
+	if err != nil {
+		t.Fatalf("scanEpubs: %v", err)
+	}
+	if len(books) != 1 {
+		t.Fatalf("want 1 fallback book, got %d", len(books))
+	}
+	if books[0].Title != "corrupt" {
+		t.Errorf("fallback title: want %q, got %q", "corrupt", books[0].Title)
+	}
+	if !isValidUUID(books[0].UUID) {
+		t.Errorf("fallback UUID invalid: %q", books[0].UUID)
+	}
+}
+
+func TestReadEpubMeta_missingTitleFallsBackToFilename(t *testing.T) {
+	dir := t.TempDir()
+	makeTestEPUB(t, dir, "mybook.epub", "", "Author", "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb")
+
+	meta, err := readEpubMeta(filepath.Join(dir, "mybook.epub"))
+	if err != nil {
+		t.Fatalf("readEpubMeta: %v", err)
+	}
+	if meta.Title != "mybook" {
+		t.Errorf("want fallback title %q, got %q", "mybook", meta.Title)
+	}
+}

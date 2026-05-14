@@ -139,6 +139,37 @@ func TestHandleLibraryState_echoesReadingState(t *testing.T) {
 	}
 }
 
+func TestHandleLibraryState_emptyBody(t *testing.T) {
+	srv := newTestServer(t)
+	req := httptest.NewRequest("PUT", testBaseURL+"/v1/library/aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb/state", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	// Empty body should return an empty JSON array, not an error.
+	body := strings.TrimSpace(w.Body.String())
+	if !strings.HasPrefix(body, "[") {
+		t.Errorf("want JSON array for empty body, got: %s", body)
+	}
+}
+
+func TestHandleLibraryState_malformedJSON(t *testing.T) {
+	srv := newTestServer(t)
+	req := httptest.NewRequest("PUT", testBaseURL+"/v1/library/aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb/state", strings.NewReader("{bad json"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	var got any
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+}
+
 func TestHandleAuthDevice_returnsTokens(t *testing.T) {
 	srv := newTestServer(t)
 	req := httptest.NewRequest("POST", testBaseURL+"/v1/auth/device", nil)
