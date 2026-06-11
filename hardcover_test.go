@@ -98,6 +98,68 @@ func TestLookupByISBN_twoStep(t *testing.T) {
 	}
 }
 
+func TestLookupByISBN_prefersEditionCover(t *testing.T) {
+	// The edition carries its own cover; it must override the book's default cover
+	// (bookJSON's image is http://covers.test/hobbit.jpg).
+	c, _ := stubHardcover(t, func(query string) string {
+		if strings.Contains(query, "editions(where:") {
+			return `{"data":{"editions":[{"book_id":42,"image":{"url":"http://covers.test/edition.jpg"}}]}}`
+		}
+		return `{"data":{"books":[` + bookJSON + `]}}`
+	})
+	b, err := c.lookup("9780261103283", "", "")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if b == nil {
+		t.Fatal("want a match, got nil")
+	}
+	if b.CoverURL != "http://covers.test/edition.jpg" {
+		t.Errorf("cover: want edition cover, got %q", b.CoverURL)
+	}
+}
+
+func TestLookupByISBN_prefersEditionPublisher(t *testing.T) {
+	// The edition carries its own publisher; it must override the book's default
+	// publisher (bookJSON's edition publisher is Allen & Unwin).
+	c, _ := stubHardcover(t, func(query string) string {
+		if strings.Contains(query, "editions(where:") {
+			return `{"data":{"editions":[{"book_id":42,"publisher":{"name":"Houghton Mifflin"}}]}}`
+		}
+		return `{"data":{"books":[` + bookJSON + `]}}`
+	})
+	b, err := c.lookup("9780261103283", "", "")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if b == nil {
+		t.Fatal("want a match, got nil")
+	}
+	if b.Publisher != "Houghton Mifflin" {
+		t.Errorf("publisher: want edition publisher, got %q", b.Publisher)
+	}
+}
+
+func TestLookupByISBN_fallsBackToBookCoverWhenEditionHasNone(t *testing.T) {
+	// Edition has no image of its own → keep the book's default cover.
+	c, _ := stubHardcover(t, func(query string) string {
+		if strings.Contains(query, "editions(where:") {
+			return `{"data":{"editions":[{"book_id":42}]}}`
+		}
+		return `{"data":{"books":[` + bookJSON + `]}}`
+	})
+	b, err := c.lookup("9780261103283", "", "")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if b == nil {
+		t.Fatal("want a match, got nil")
+	}
+	if b.CoverURL != "http://covers.test/hobbit.jpg" {
+		t.Errorf("cover: want book default cover, got %q", b.CoverURL)
+	}
+}
+
 func TestLookupByISBN_missFallsBackToTitle(t *testing.T) {
 	c, _ := stubHardcover(t, func(query string) string {
 		if strings.Contains(query, "editions(where:") {

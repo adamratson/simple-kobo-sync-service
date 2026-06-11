@@ -77,12 +77,23 @@ func (c *hardcoverClient) lookup(isbn, title, author string) (*hardcoverBook, er
 }
 
 func (c *hardcoverClient) lookupByISBN(isbn string) (*hardcoverBook, error) {
+	// Select the matched edition's own cover and publisher alongside book_id.
+	// Hardcover's book-level image and the book's arbitrary edition publisher are
+	// the *default*/first edition's values, which often differ from the edition
+	// the user actually owns; preferring the matched edition's image and publisher
+	// gives the device edition-accurate metadata at no extra round-trip.
 	const q = `query ($isbn: String!) {
-  editions(where: {_or: [{isbn_13: {_eq: $isbn}}, {isbn_10: {_eq: $isbn}}]}, limit: 1) { book_id }
+  editions(where: {_or: [{isbn_13: {_eq: $isbn}}, {isbn_10: {_eq: $isbn}}]}, limit: 1) { book_id image { url } publisher { name } }
 }`
 	var resp struct {
 		Editions []struct {
 			BookID int `json:"book_id"`
+			Image  *struct {
+				URL string `json:"url"`
+			} `json:"image"`
+			Publisher *struct {
+				Name string `json:"name"`
+			} `json:"publisher"`
 		} `json:"editions"`
 	}
 	if err := c.do(q, map[string]any{"isbn": isbn}, &resp); err != nil {
@@ -91,7 +102,17 @@ func (c *hardcoverClient) lookupByISBN(isbn string) (*hardcoverBook, error) {
 	if len(resp.Editions) == 0 || resp.Editions[0].BookID == 0 {
 		return nil, nil
 	}
-	return c.lookupByID(resp.Editions[0].BookID)
+	b, err := c.lookupByID(resp.Editions[0].BookID)
+	if err != nil || b == nil {
+		return b, err
+	}
+	if ed := resp.Editions[0].Image; ed != nil && ed.URL != "" {
+		b.CoverURL = ed.URL
+	}
+	if pub := resp.Editions[0].Publisher; pub != nil && pub.Name != "" {
+		b.Publisher = pub.Name
+	}
+	return b, nil
 }
 
 func (c *hardcoverClient) lookupByID(id int) (*hardcoverBook, error) {

@@ -37,6 +37,7 @@ type cachedMeta struct {
 	PublicationDate string    `json:"publicationDate,omitempty"`
 	Genres          []string  `json:"genres,omitempty"`
 	CoverFile       string    `json:"coverFile,omitempty"`
+	CoverURL        string    `json:"coverUrl,omitempty"` // source URL, kept so a deleted cover can be re-fetched without a fresh lookup
 }
 
 func newMetadataStore(dir string, client *hardcoverClient) *metadataStore {
@@ -103,6 +104,7 @@ func (m *metadataStore) enrich(b epubMeta) epubMeta {
 	cm, ok := m.cache[b.UUID]
 	m.mu.Unlock()
 	if ok {
+		cm = m.ensureCover(b, cm)
 		return applyCached(b, cm, m.coverExists(b.UUID))
 	}
 
@@ -123,6 +125,7 @@ func (m *metadataStore) enrich(b epubMeta) epubMeta {
 		cm.Genres = book.Genres
 		if book.CoverURL != "" && m.downloadCover(b.UUID, book.CoverURL) {
 			cm.CoverFile = b.UUID + ".jpg"
+			cm.CoverURL = book.CoverURL
 		}
 		slog.Info("hardcover enriched", "title", b.Title, "series", book.Series, "cover", cm.CoverFile != "")
 	} else {
@@ -135,6 +138,42 @@ func (m *metadataStore) enrich(b epubMeta) epubMeta {
 	m.mu.Unlock()
 
 	return applyCached(b, cm, cm.CoverFile != "")
+}
+
+// ensureCover re-downloads a cover that was cached before but has since been
+// deleted from disk, so removing a JPEG on its own is enough to refresh it on the
+// next sync. It prefers the URL stored in the cache (no Hardcover round-trip) and
+// falls back to re-resolving via Hardcover for legacy entries written before the
+// URL was persisted; any newly learned URL is saved back. Entries with no cover,
+// or whose file is still present, are returned unchanged.
+func (m *metadataStore) ensureCover(b epubMeta, cm cachedMeta) cachedMeta {
+	if !cm.Found || cm.CoverFile == "" || m.coverExists(b.UUID) {
+		return cm
+	}
+	url := cm.CoverURL
+	if url == "" {
+		book, err := m.client.lookup(b.ISBN, b.Title, b.Author)
+		if err != nil {
+			slog.Warn("hardcover cover refetch: lookup failed", "title", b.Title, "err", err)
+			return cm
+		}
+		if book == nil {
+			return cm
+		}
+		url = book.CoverURL
+	}
+	if url == "" || !m.downloadCover(b.UUID, url) {
+		return cm
+	}
+	slog.Info("hardcover cover refetched", "title", b.Title)
+	if cm.CoverURL != url {
+		cm.CoverURL = url
+		m.mu.Lock()
+		m.cache[b.UUID] = cm
+		m.save()
+		m.mu.Unlock()
+	}
+	return cm
 }
 
 // coverExists reports whether a cached cover file is present on disk.

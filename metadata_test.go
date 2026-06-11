@@ -84,6 +84,35 @@ func TestEnrich_fetchesAndCaches(t *testing.T) {
 	}
 }
 
+func TestEnrich_refetchesDeletedCover(t *testing.T) {
+	store, calls := newEnrichTestStore(t, true)
+	b := sampleBook()
+
+	store.enrich(b) // populate cache + cover
+	if _, err := os.Stat(store.coverPath(b.UUID)); err != nil {
+		t.Fatalf("cover not written on first enrich: %v", err)
+	}
+
+	// Delete just the JPEG, leaving the metadata cache entry intact.
+	if err := os.Remove(store.coverPath(b.UUID)); err != nil {
+		t.Fatalf("removing cover: %v", err)
+	}
+
+	// Next enrich should re-download the cover from the stored URL without any
+	// new GraphQL lookup.
+	before := *calls
+	got := store.enrich(b)
+	if *calls != before {
+		t.Errorf("cover refetch hit GraphQL: calls went %d -> %d", before, *calls)
+	}
+	if !got.HasCover {
+		t.Error("HasCover: want true after refetch")
+	}
+	if _, err := os.Stat(store.coverPath(b.UUID)); err != nil {
+		t.Errorf("cover not re-downloaded: %v", err)
+	}
+}
+
 func TestEnrich_cachesNegativeResult(t *testing.T) {
 	store, calls := newEnrichTestStore(t, false)
 	b := sampleBook()
