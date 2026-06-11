@@ -23,6 +23,17 @@ type epubMeta struct {
 	Language string
 	FilePath string
 	Size     int64
+	ISBN     string // normalized ISBN from the OPF identifier, when present
+
+	// Enrichment fields, populated by metadataStore from Hardcover. Zero-valued
+	// when enrichment is disabled, so existing behavior is unaffected.
+	Description     string
+	Series          string
+	SeriesNumber    float64
+	Publisher       string
+	PublicationDate string
+	Genres          []string
+	HasCover        bool
 }
 
 // deriveUUID returns a UUID v5 (SHA-1 based) for the given name using our fixed namespace.
@@ -148,7 +159,40 @@ func readEpubMeta(path string) (epubMeta, error) {
 		Language: language,
 		FilePath: path,
 		Size:     size,
+		ISBN:     normalizeISBN(identifier),
 	}, nil
+}
+
+// normalizeISBN extracts a valid ISBN-10 or ISBN-13 from an OPF identifier.
+// It strips common prefixes and separators and returns "" if the result isn't
+// a plausible ISBN (10 or 13 digits, where ISBN-10 may end in 'X').
+func normalizeISBN(id string) string {
+	s := strings.ToUpper(strings.TrimSpace(id))
+	s = strings.TrimPrefix(s, "URN:ISBN:")
+	s = strings.TrimPrefix(s, "ISBN:")
+	s = strings.TrimPrefix(s, "ISBN")
+	var b strings.Builder
+	for _, c := range s {
+		if c >= '0' && c <= '9' || c == 'X' {
+			b.WriteRune(c)
+		}
+	}
+	digits := b.String()
+	switch len(digits) {
+	case 13:
+		if strings.ContainsRune(digits, 'X') {
+			return ""
+		}
+		return digits
+	case 10:
+		// Only the final character may be the check digit 'X'.
+		if strings.ContainsRune(digits[:9], 'X') {
+			return ""
+		}
+		return digits
+	default:
+		return ""
+	}
 }
 
 // findEpubByUUID scans dir and returns the path of the epub whose UUID matches id.

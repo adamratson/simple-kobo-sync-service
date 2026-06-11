@@ -40,6 +40,14 @@ api_endpoint=http://{your-ip}:8080/kobo/<token>
 | `KOBO_EPUB_DIR` | `.` | No | Directory containing `.epub` files to serve. |
 | `KOBO_ADDR` | `:8080` | No | Listen address, e.g. `0.0.0.0:9000`. |
 | `KOBO_DEBUG` | unset | No | Set to any non-empty value to log all request headers and bodies for unmapped endpoints. |
+| `HARDCOVER_API_KEY` | unset | No | API key for [Hardcover](https://hardcover.app/account/api). When set, books are enriched with description, series, publisher, publication date, genres, and cover art on first sync. |
+| `HARDCOVER_CACHE_DIR` | `KOBO_EPUB_DIR` | No | Writable directory for the metadata cache (`hardcover-cache.json`) and downloaded covers. In Docker this defaults to `/data/cache` (mount a writable volume) since the EPUB dir is read-only. |
+
+## Hardcover metadata enrichment
+
+Set `HARDCOVER_API_KEY` to look up each book on [Hardcover](https://hardcover.app) the first time it is seen during a sync. Matching uses the EPUB's ISBN (from the OPF `dc:identifier`) when available, falling back to a title + author search.
+
+Results — description, series, publisher, publication date, genres, and a cover image — are cached on disk so each book is fetched only once (Hardcover is rate-limited to 60 requests/minute). Negative results are cached too. Delete `hardcover-cache.json` (and the `covers/` folder) in the cache dir to force a re-fetch.
 
 ## Building from source
 

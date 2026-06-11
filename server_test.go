@@ -96,6 +96,58 @@ func TestResponseRecorder_capturesCode(t *testing.T) {
 	}
 }
 
+func TestCatchAll_debugModeWithBody(t *testing.T) {
+	srv := newServer(config{
+		token:       testToken,
+		epubDir:     t.TempDir(),
+		externalURL: testExternalURL,
+		debug:       true,
+	})
+	body := `{"key":"value"}`
+	req := httptest.NewRequest("POST", testBaseURL+"/v1/unknown-debug-endpoint", strings.NewReader(body))
+	req.Header.Set("X-Test-Header", "headerval")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("want 200, got %d", w.Code)
+	}
+	var got any
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("want valid JSON, got error: %v", err)
+	}
+}
+
+func TestCatchAll_debugModeNoBody(t *testing.T) {
+	srv := newServer(config{
+		token:       testToken,
+		epubDir:     t.TempDir(),
+		externalURL: testExternalURL,
+		debug:       true,
+	})
+	req := httptest.NewRequest("GET", testBaseURL+"/v1/unknown-debug-no-body", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("want 200, got %d", w.Code)
+	}
+}
+
+func TestNewServer_withHardcoverKey(t *testing.T) {
+	dir := t.TempDir()
+	srv := newServer(config{
+		token:           testToken,
+		epubDir:         dir,
+		externalURL:     testExternalURL,
+		hardcoverAPIKey: "testkey",
+		cacheDir:        dir,
+	})
+	if srv.store == nil {
+		t.Error("want non-nil store when hardcoverAPIKey is set")
+	}
+}
+
 func TestResponseRecorder_defaultCode(t *testing.T) {
 	inner := httptest.NewRecorder()
 	rec := &responseRecorder{ResponseWriter: inner, code: http.StatusOK}

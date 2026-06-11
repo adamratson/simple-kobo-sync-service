@@ -11,7 +11,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/kobo-sync /kobo-sync
 ENV KOBO_ADDR=:8080 \
     KOBO_EPUB_DIR=/data/epubs
-VOLUME ["/data/epubs"]
+VOLUME ["/data/epubs", "/data/cache"]
 EXPOSE 8080
 USER nonroot:nonroot
 ENTRYPOINT ["/kobo-sync"]

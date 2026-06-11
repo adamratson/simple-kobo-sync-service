@@ -1,3 +1,9 @@
 .claude
 simple-kobo-sync-service
 .env
+
+cache/
+hardcover-cache.json
+covers/
+
+*.out

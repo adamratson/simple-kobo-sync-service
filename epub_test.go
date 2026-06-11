@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -95,9 +96,10 @@ func TestIsValidUUID(t *testing.T) {
 	invalid := []string{
 		"",
 		"not-a-uuid",
-		"12345678-1234-5678-1234-56781234567",  // too short
-		"12345678-1234-5678-1234-5678123456789", // too long
-		"12345678_1234_5678_1234_567812345678",  // underscores
+		"12345678-1234-5678-1234-56781234567",   // too short
+		"12345678-1234-5678-1234-5678123456789",  // too long
+		"12345678_1234_5678_1234_567812345678",   // underscores at hyphen positions
+		"12345678-1234-5678-1234-56781234567g",   // valid length/hyphens but 'g' is not hex
 	}
 	for _, v := range valid {
 		if !isValidUUID(v) {
@@ -335,6 +337,20 @@ func TestScanEpubs_multipleBooks(t *testing.T) {
 	}
 }
 
+func TestScanEpubs_nonExistentDir(t *testing.T) {
+	_, err := scanEpubs("/nonexistent/kobo-test-dir-abc123")
+	if err == nil {
+		t.Error("want error for non-existent dir, got nil")
+	}
+}
+
+func TestFindEpubByUUID_badDir(t *testing.T) {
+	path, ok := findEpubByUUID("/nonexistent/kobo-test-dir-abc123", "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb")
+	if ok || path != "" {
+		t.Errorf("want (\"\" , false) for bad dir, got (%q, %v)", path, ok)
+	}
+}
+
 func TestScanEpubs_corruptFallsBackToFilename(t *testing.T) {
 	dir := t.TempDir()
 	// Write a file with .epub extension that is not a valid zip.
@@ -357,6 +373,68 @@ func TestScanEpubs_corruptFallsBackToFilename(t *testing.T) {
 	}
 }
 
+func TestReadEpubMeta_noContainerXML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nocontainer.epub")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := zip.NewWriter(f)
+	fw, _ := w.Create("somefile.txt")
+	fw.Write([]byte("hello"))
+	w.Close()
+	f.Close()
+
+	_, err = readEpubMeta(path)
+	if err == nil {
+		t.Error("want error for epub without META-INF/container.xml, got nil")
+	}
+}
+
+func TestReadEpubMeta_noRootfileInContainerXML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "norootfile.epub")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := zip.NewWriter(f)
+	fw, _ := w.Create("META-INF/container.xml")
+	fw.Write([]byte(`<?xml version="1.0"?><container version="1.0"><rootfiles></rootfiles></container>`))
+	w.Close()
+	f.Close()
+
+	_, err = readEpubMeta(path)
+	if err == nil {
+		t.Error("want error when container.xml has no rootfile element, got nil")
+	}
+}
+
+func TestReadEpubMeta_noLanguageFallsBackToEn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nolang.epub")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wz := zip.NewWriter(f)
+	writeZipEntry(t, wz, "META-INF/container.xml",
+		`<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`)
+	writeZipEntry(t, wz, "OEBPS/content.opf",
+		`<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>No Lang Book</dc:title><dc:creator>Author</dc:creator><dc:identifier id="BookId">urn:uuid:11111111-1111-1111-1111-111111111111</dc:identifier></metadata></package>`)
+	wz.Close()
+	f.Close()
+
+	meta, err := readEpubMeta(path)
+	if err != nil {
+		t.Fatalf("readEpubMeta: %v", err)
+	}
+	if meta.Language != "en" {
+		t.Errorf("want language fallback %q, got %q", "en", meta.Language)
+	}
+}
+
 func TestReadEpubMeta_missingTitleFallsBackToFilename(t *testing.T) {
 	dir := t.TempDir()
 	makeTestEPUB(t, dir, "mybook.epub", "", "Author", "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb")
@@ -367,5 +445,63 @@ func TestReadEpubMeta_missingTitleFallsBackToFilename(t *testing.T) {
 	}
 	if meta.Title != "mybook" {
 		t.Errorf("want fallback title %q, got %q", "mybook", meta.Title)
+	}
+}
+
+// TestHandleLibraryMetadata_readEpubError exercises the branch where findEpubByUUID
+// succeeds (via scanEpubs fallback UUID) but the second readEpubMeta call inside the
+// handler fails on the same corrupt file.
+func TestHandleLibraryMetadata_readEpubError(t *testing.T) {
+	dir := t.TempDir()
+	const corruptName = "corrupt-meta.epub"
+	os.WriteFile(filepath.Join(dir, corruptName), []byte("not a zip"), 0o644)
+
+	// scanEpubs assigns deriveUUID(filename) to unreadable epubs.
+	uuid := deriveUUID(corruptName)
+
+	srv := newServer(config{token: testToken, epubDir: dir, externalURL: testExternalURL})
+	req := httptest.NewRequest("GET", testBaseURL+"/v1/library/"+uuid+"/metadata", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("want 200, got %d", w.Code)
+	}
+	// Error branch returns an empty JSON object.
+	body := strings.TrimSpace(w.Body.String())
+	if body != "{}" {
+		t.Errorf("want empty object on readEpubMeta error, got: %s", body)
+	}
+}
+
+// TestHandleDownload_openFailure exercises the os.Open error branch: findEpubByUUID
+// finds the file via scanEpubs fallback UUID, but the file is unreadable by Open.
+func TestHandleDownload_openFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod semantics differ on Windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
+	dir := t.TempDir()
+	const name = "locked.epub"
+	makeTestEPUB(t, dir, name, "Locked Book", "Author", "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+	path := filepath.Join(dir, name)
+
+	// chmod 000: scanEpubs can't read it → fallback UUID = deriveUUID(name).
+	// handleDownload then also can't open it → 404.
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Skip("cannot chmod:", err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0o644) })
+
+	uuid := deriveUUID(name)
+	srv := newServer(config{token: testToken, epubDir: dir, externalURL: testExternalURL})
+	req := httptest.NewRequest("GET", testBaseURL+"/v1/library/"+uuid+"/download", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("want 404 when file is unreadable, got %d", w.Code)
 	}
 }

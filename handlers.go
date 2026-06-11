@@ -222,10 +222,18 @@ type bookMetadata struct {
 	PublicationDate         string            `json:"PublicationDate"`
 	Publisher               bookPublisher     `json:"Publisher"`
 	RevisionId              string            `json:"RevisionId"`
+	Series                  *bookSeries       `json:"Series,omitempty"`
 	Title                   string            `json:"Title"`
 	WorkId                  string            `json:"WorkId"`
 	ContributorRoles        []contributor     `json:"ContributorRoles"`
 	Contributors            []string          `json:"Contributors"`
+}
+
+// bookSeries mirrors the shape Kobo uses to render series grouping on-device.
+type bookSeries struct {
+	Name        string  `json:"Name"`
+	Number      string  `json:"Number"`
+	NumberFloat float64 `json:"NumberFloat"`
 }
 
 type syncDownloadURL struct {
@@ -276,6 +284,9 @@ func (s *server) handleLibrarySync(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	items := make([]syncItem, 0, len(books))
 	for _, book := range books {
+		if s.store != nil {
+			book = s.store.enrich(book)
+		}
 		items = append(items, syncItem{NewEntitlement: s.buildEntitlement(book, now)})
 	}
 
@@ -292,6 +303,28 @@ func (s *server) buildEntitlement(book epubMeta, now string) *entitlement {
 		roles = []contributor{{ContributorType: "Author", Name: book.Author}}
 	}
 	dl := s.baseURL() + "/v1/library/" + book.UUID + "/download"
+
+	var description *string
+	if book.Description != "" {
+		description = &book.Description
+	}
+	categories := []string{genre}
+	if len(book.Genres) > 0 {
+		categories = book.Genres
+	}
+	publisher := bookPublisher{Imprint: "", Name: book.Publisher}
+	pubDate := now
+	if book.PublicationDate != "" {
+		pubDate = book.PublicationDate
+	}
+	var series *bookSeries
+	if book.Series != "" {
+		series = &bookSeries{
+			Name:        book.Series,
+			Number:      strconv.FormatFloat(book.SeriesNumber, 'f', -1, 64),
+			NumberFloat: book.SeriesNumber,
+		}
+	}
 	rs := readingState{
 		Created:           now,
 		LastModified:      now,
@@ -321,12 +354,12 @@ func (s *server) buildEntitlement(book epubMeta, now string) *entitlement {
 			Status:              "Active",
 		},
 		BookMetadata: bookMetadata{
-			Categories:              []string{genre},
+			Categories:              categories,
 			CoverImageId:            book.UUID,
 			CrossRevisionId:         book.UUID,
 			CurrentDisplayPrice:     bookPrice{CurrencyCode: "USD", TotalAmount: 0},
 			CurrentLoveDisplayPrice: lovePrice{TotalAmount: 0},
-			Description:             nil,
+			Description:             description,
 			DownloadUrls: []syncDownloadURL{
 				{Format: "EPUB3", Size: book.Size, Url: dl, Platform: "Generic"},
 				{Format: "EPUB", Size: book.Size, Url: dl, Platform: "Generic"},
@@ -340,9 +373,10 @@ func (s *server) buildEntitlement(book epubMeta, now string) *entitlement {
 			IsSocialEnabled:        true,
 			Language:               book.Language,
 			PhoneticPronunciations: map[string]any{},
-			PublicationDate:        now,
-			Publisher:              bookPublisher{Imprint: "", Name: ""},
+			PublicationDate:        pubDate,
+			Publisher:              publisher,
 			RevisionId:             book.UUID,
+			Series:                 series,
 			Title:                  book.Title,
 			WorkId:                 book.UUID,
 			ContributorRoles:       roles,
@@ -364,6 +398,9 @@ func (s *server) handleLibraryMetadata(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(struct{}{})
 		return
+	}
+	if s.store != nil {
+		meta = s.store.enrich(meta)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	e := s.buildEntitlement(meta, now)
@@ -394,6 +431,31 @@ func (s *server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
 	http.ServeContent(w, r, filename, fi.ModTime(), f)
+}
+
+// handleCoverImage serves a book's cached cover JPEG. The {id} path segment is the
+// CoverImageId (the book UUID); width/height/greyscale are ignored and the cached
+// original is returned. Returns 404 when enrichment is disabled or no cover exists.
+func (s *server) handleCoverImage(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		http.NotFound(w, r)
+		return
+	}
+	id := r.PathValue("id")
+	path := s.store.coverPath(id)
+	f, err := os.Open(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	http.ServeContent(w, r, "image.jpg", fi.ModTime(), f)
 }
 
 // resources mirrors the JSON blob Kobo expects from GET /v1/initialization.

@@ -14,6 +14,8 @@ func main() {
 	epubDir := envOr("KOBO_EPUB_DIR", ".")
 	externalURL := envOr("KOBO_EXTERNAL_URL", "")
 	debug := os.Getenv("KOBO_DEBUG") != ""
+	hardcoverAPIKey := envOr("HARDCOVER_API_KEY", "")
+	cacheDir := envOr("HARDCOVER_CACHE_DIR", epubDir)
 
 	if token == "" {
 		suggested := randomToken()
@@ -29,13 +31,20 @@ func main() {
 	}
 
 	srv := newServer(config{
-		token:       token,
-		epubDir:     epubDir,
-		externalURL: externalURL,
-		debug:       debug,
+		token:           token,
+		epubDir:         epubDir,
+		externalURL:     externalURL,
+		debug:           debug,
+		hardcoverAPIKey: hardcoverAPIKey,
+		cacheDir:        cacheDir,
 	})
 
 	slog.Info("kobo-sync starting", "addr", addr, "epub_dir", epubDir)
+	if hardcoverAPIKey != "" {
+		slog.Info("hardcover metadata enrichment enabled", "cache_dir", cacheDir)
+	} else {
+		slog.Info("hardcover metadata enrichment disabled", "hint", "set HARDCOVER_API_KEY to enable")
+	}
 	slog.Info("set in .kobo/Kobo/Kobo eReader.conf under [OneStoreServices]",
 		"api_endpoint", externalURL+"/kobo/"+token,
 	)

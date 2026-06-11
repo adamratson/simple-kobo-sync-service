@@ -10,19 +10,25 @@ import (
 )
 
 type config struct {
-	token       string
-	epubDir     string
-	externalURL string // e.g. "http://192.168.1.50:8080" — set at startup, not derived from r.Host
-	debug       bool   // enable verbose header/body logging for catch-all routes (KOBO_DEBUG=1)
+	token           string
+	epubDir         string
+	externalURL     string // e.g. "http://192.168.1.50:8080" — set at startup, not derived from r.Host
+	debug           bool   // enable verbose header/body logging for catch-all routes (KOBO_DEBUG=1)
+	hardcoverAPIKey string // optional; when empty, Hardcover metadata enrichment is disabled
+	cacheDir        string // writable dir for the Hardcover metadata cache and cached covers
 }
 
 type server struct {
-	cfg config
-	mux *http.ServeMux
+	cfg   config
+	mux   *http.ServeMux
+	store *metadataStore // nil when Hardcover enrichment is disabled
 }
 
 func newServer(cfg config) *server {
 	s := &server{cfg: cfg, mux: http.NewServeMux()}
+	if cfg.hardcoverAPIKey != "" {
+		s.store = newMetadataStore(cfg.cacheDir, newHardcoverClient(cfg.hardcoverAPIKey))
+	}
 	s.routes()
 	return s
 }
@@ -40,6 +46,11 @@ func (s *server) routes() {
 	s.mux.HandleFunc("GET /kobo/{token}/v1/library/{id}/download", s.logged(s.authenticated(s.handleDownload)))
 	s.mux.HandleFunc("PUT /kobo/{token}/v1/library/{id}/state", s.logged(s.authenticated(s.handleLibraryState)))
 	s.mux.HandleFunc("GET /kobo/{token}/v1/user/profile", s.logged(s.authenticated(s.handleUserProfile)))
+
+	// Cover images — matches the ImageURLTemplate advertised in /v1/initialization.
+	// {id} is the book's CoverImageId (its UUID); width/height/greyscale are ignored and
+	// the cached original JPEG is served. Registered before the catch-all below.
+	s.mux.HandleFunc("GET /kobo/{token}/images/{id}/{width}/{height}/{greyscale}/image.jpg", s.logged(s.authenticated(s.handleCoverImage)))
 
 	// OIDC discovery — firmware 4.45+ fetches this before proceeding to library/sync.
 	// Register at both the Calibre-Web path and the standard OIDC path since we don't
