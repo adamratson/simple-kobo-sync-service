@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -304,6 +305,24 @@ func (s *server) buildEntitlement(book epubMeta, now string) *entitlement {
 	}
 	dl := s.baseURL() + "/v1/library/" + book.UUID + "/download"
 
+	// Advertise KEPUB when conversion is enabled — Kobo prefers it and applies its
+	// native reading features (page turns, statistics) to kepubs. Size reflects the
+	// converted file once it has been cached; until then the EPUB size is a close
+	// enough estimate (the download sets an accurate Content-Length regardless).
+	downloadURLs := []syncDownloadURL{
+		{Format: "EPUB3", Size: book.Size, Url: dl, Platform: "Generic"},
+		{Format: "EPUB", Size: book.Size, Url: dl, Platform: "Generic"},
+	}
+	if s.kepub != nil {
+		size := book.Size
+		if _, cached, ok := s.kepub.cached(book); ok {
+			size = cached
+		}
+		downloadURLs = []syncDownloadURL{
+			{Format: "KEPUB", Size: size, Url: dl, Platform: "Generic"},
+		}
+	}
+
 	var description *string
 	if book.Description != "" {
 		description = &book.Description
@@ -360,10 +379,7 @@ func (s *server) buildEntitlement(book epubMeta, now string) *entitlement {
 			CurrentDisplayPrice:     bookPrice{CurrencyCode: "USD", TotalAmount: 0},
 			CurrentLoveDisplayPrice: lovePrice{TotalAmount: 0},
 			Description:             description,
-			DownloadUrls: []syncDownloadURL{
-				{Format: "EPUB3", Size: book.Size, Url: dl, Platform: "Generic"},
-				{Format: "EPUB", Size: book.Size, Url: dl, Platform: "Generic"},
-			},
+			DownloadUrls:            downloadURLs,
 			EntitlementId:          book.UUID,
 			ExternalIds:            []string{},
 			Genre:                  genre,
@@ -415,6 +431,20 @@ func (s *server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	filename := filepath.Base(path)
+
+	// Serve a converted KEPUB when enabled. On any conversion error we fall back
+	// to the original EPUB so a download never fails outright.
+	if s.kepub != nil {
+		book := epubMeta{UUID: strings.ToLower(id), FilePath: path, Title: filename}
+		if kp, err := s.kepub.convert(r.Context(), book); err == nil {
+			path = kp
+			filename = kepubFilename(filename)
+		} else {
+			slog.Warn("kepub conversion failed, serving original epub", "id", id, "err", err)
+		}
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		http.NotFound(w, r)
@@ -426,7 +456,6 @@ func (s *server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "stat failed", http.StatusInternalServerError)
 		return
 	}
-	filename := filepath.Base(path)
 	w.Header().Set("Content-Type", "application/epub+zip")
 	w.Header().Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))

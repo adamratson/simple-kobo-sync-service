@@ -7,11 +7,13 @@ services:
       KOBO_TOKEN: ${KOBO_TOKEN:?KOBO_TOKEN must be set}
       KOBO_EXTERNAL_URL: ${KOBO_EXTERNAL_URL:?KOBO_EXTERNAL_URL must be set, e.g. 192.168.0.3}
       KOBO_EPUB_DIR: /data/epubs
+      # Optional: set to 0 to serve raw EPUBs instead of converting them to KEPUB.
+      KOBO_KEPUBIFY: ${KOBO_KEPUBIFY:-1}
       # Optional: enables Hardcover metadata enrichment (description, series, publisher, covers).
       HARDCOVER_API_KEY: ${HARDCOVER_API_KEY:-}
       HARDCOVER_CACHE_DIR: /data/cache
     volumes:
       - ${EPUB_DIR:-./epubs}:/data/epubs:ro
-      # Writable cache for fetched Hardcover metadata and cover images.
+      # Writable cache for fetched Hardcover metadata, cover images, and converted kepubs.
       - ${CACHE_DIR:-./cache}:/data/cache
     restart: unless-stopped

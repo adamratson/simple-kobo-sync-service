@@ -15,19 +15,24 @@ type config struct {
 	externalURL     string // e.g. "http://192.168.1.50:8080" — set at startup, not derived from r.Host
 	debug           bool   // enable verbose header/body logging for catch-all routes (KOBO_DEBUG=1)
 	hardcoverAPIKey string // optional; when empty, Hardcover metadata enrichment is disabled
-	cacheDir        string // writable dir for the Hardcover metadata cache and cached covers
+	cacheDir        string // writable dir for the Hardcover metadata cache, cached covers, and converted kepubs
+	kepubify        bool   // when true, EPUBs are converted to Kobo's KEPUB format before download
 }
 
 type server struct {
 	cfg   config
 	mux   *http.ServeMux
 	store *metadataStore // nil when Hardcover enrichment is disabled
+	kepub *kepubStore    // nil when kepub conversion is disabled
 }
 
 func newServer(cfg config) *server {
 	s := &server{cfg: cfg, mux: http.NewServeMux()}
 	if cfg.hardcoverAPIKey != "" {
 		s.store = newMetadataStore(cfg.cacheDir, newHardcoverClient(cfg.hardcoverAPIKey))
+	}
+	if cfg.kepubify {
+		s.kepub = newKepubStore(cfg.cacheDir)
 	}
 	s.routes()
 	return s

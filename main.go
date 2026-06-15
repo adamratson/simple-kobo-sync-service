@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -16,6 +17,7 @@ func main() {
 	debug := os.Getenv("KOBO_DEBUG") != ""
 	hardcoverAPIKey := envOr("HARDCOVER_API_KEY", "")
 	cacheDir := envOr("HARDCOVER_CACHE_DIR", epubDir)
+	kepubify := !isFalsy(os.Getenv("KOBO_KEPUBIFY")) // on unless explicitly disabled
 
 	if token == "" {
 		suggested := randomToken()
@@ -37,9 +39,15 @@ func main() {
 		debug:           debug,
 		hardcoverAPIKey: hardcoverAPIKey,
 		cacheDir:        cacheDir,
+		kepubify:        kepubify,
 	})
 
 	slog.Info("kobo-sync starting", "addr", addr, "epub_dir", epubDir)
+	if kepubify {
+		slog.Info("kepub conversion enabled", "cache_dir", cacheDir, "hint", "set KOBO_KEPUBIFY=0 to serve raw EPUBs")
+	} else {
+		slog.Info("kepub conversion disabled", "hint", "EPUBs are served as-is")
+	}
 	if hardcoverAPIKey != "" {
 		slog.Info("hardcover metadata enrichment enabled", "cache_dir", cacheDir)
 	} else {
@@ -60,6 +68,17 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// isFalsy reports whether an env var value explicitly disables a feature.
+// An unset (empty) value is not falsy, so features default to on.
+func isFalsy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "false", "no", "off":
+		return true
+	default:
+		return false
+	}
 }
 
 func randomToken() string {
