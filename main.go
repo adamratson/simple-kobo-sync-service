@@ -48,6 +48,13 @@ func main() {
 	} else {
 		slog.Info("kepub conversion disabled", "hint", "EPUBs are served as-is")
 	}
+	if kepubify || hardcoverAPIKey != "" {
+		if err := checkWritable(cacheDir); err != nil {
+			slog.Warn("cache dir is not writable; kepubs will be converted on every download and Hardcover results won't persist",
+				"cache_dir", cacheDir, "err", err,
+				"hint", "in Docker, chown the mounted cache dir to 65532:65532 (the image's nonroot user)")
+		}
+	}
 	if hardcoverAPIKey != "" {
 		slog.Info("hardcover metadata enrichment enabled", "cache_dir", cacheDir)
 	} else {
@@ -79,6 +86,20 @@ func isFalsy(v string) bool {
 	default:
 		return false
 	}
+}
+
+// checkWritable reports whether files can be created in dir, creating it first
+// if it doesn't exist.
+func checkWritable(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".write-check-*")
+	if err != nil {
+		return err
+	}
+	f.Close()
+	return os.Remove(f.Name())
 }
 
 func randomToken() string {

@@ -35,7 +35,7 @@ docker compose up -d
 | `KOBO_DEBUG` | unset | No | Set to any non-empty value to log all request headers and bodies for unmapped endpoints. |
 | `KOBO_KEPUBIFY` | `1` (on) | No | EPUBs are converted to Kobo's KEPUB format before download so the device applies its native reading features (page turns, statistics). Set to `0`/`false`/`off` to serve raw EPUBs instead. |
 | `HARDCOVER_API_KEY` | unset | No | API key for [Hardcover](https://hardcover.app/account/api). When set, books are enriched with description, series, publisher, publication date, genres, and cover art on first sync. |
-| `HARDCOVER_CACHE_DIR` | `KOBO_EPUB_DIR` | No | Writable directory for the metadata cache (`hardcover-cache.json`), downloaded covers, and converted kepubs (`kepubs/`). In Docker this defaults to `/data/cache` (mount a writable volume) since the EPUB dir is read-only. |
+| `HARDCOVER_CACHE_DIR` | `KOBO_EPUB_DIR` | No | Writable directory for the metadata cache (`hardcover-cache.json`), downloaded covers, and converted kepubs (`kepubs/`). In Docker this defaults to `/data/cache` (mount a writable volume) since the EPUB dir is read-only. The container runs as uid `65532`, so a bind-mounted cache dir must be writable by it (`mkdir cache && sudo chown 65532:65532 cache`). |
 
 ## Hardcover metadata enrichment
 

@@ -185,6 +185,55 @@ func TestHandleDownload_servesKepub(t *testing.T) {
 	}
 }
 
+// The sync entitlement advertises KEPUB regardless of whether the cache works,
+// and the Kobo renders whatever it downloads as a kepub. So an unwritable cache
+// must still yield a converted file, not the raw EPUB (which shows blank pages
+// for books whose chapters aren't well-formed XHTML).
+func TestHandleDownload_unwritableCacheStillServesKepub(t *testing.T) {
+	dir := t.TempDir()
+	uuid := "dddd2222-2222-3333-4444-555566667777"
+	makeConvertibleEPUB(t, dir, "novel.epub", "A Novel", uuid)
+
+	// A regular file where the cache dir should be: MkdirAll fails even as root.
+	cacheDir := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(cacheDir, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := newServer(config{
+		token:       testToken,
+		epubDir:     dir,
+		externalURL: testExternalURL,
+		cacheDir:    cacheDir,
+		kepubify:    true,
+	})
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest("GET", "/kobo/"+testToken+"/v1/library/"+uuid+"/download", nil))
+
+	res := w.Result()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("download: want 200, got %d", res.StatusCode)
+	}
+	if cd := res.Header.Get("Content-Disposition"); !strings.Contains(cd, ".kepub.epub") {
+		t.Errorf("Content-Disposition = %q, want a .kepub.epub filename", cd)
+	}
+	if cl := res.Header.Get("Content-Length"); cl != strconv.Itoa(len(body)) {
+		t.Errorf("Content-Length %q != body length %d", cl, len(body))
+	}
+	assertValidEPUBZip(t, body)
+
+	zr, _ := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	f, err := zr.Open("OEBPS/ch1.xhtml")
+	if err != nil {
+		t.Fatalf("open chapter: %v", err)
+	}
+	ch, _ := io.ReadAll(f)
+	if !strings.Contains(string(ch), "koboSpan") {
+		t.Error("served chapter has no koboSpans; raw EPUB was served instead of a kepub")
+	}
+}
+
 func TestHandleLibrarySync_advertisesKepubFormat(t *testing.T) {
 	dir := t.TempDir()
 	uuid := "eeee1111-2222-3333-4444-555566667777"

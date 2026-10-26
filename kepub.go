@@ -2,8 +2,10 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -107,12 +109,6 @@ func (k *kepubStore) convert(ctx context.Context, book epubMeta) (string, error)
 // cache, mirroring the metadata/cover cache's write pattern so a partial file is
 // never observed.
 func (k *kepubStore) write(ctx context.Context, book epubMeta) error {
-	zr, err := zip.OpenReader(book.FilePath)
-	if err != nil {
-		return fmt.Errorf("open epub: %w", err)
-	}
-	defer zr.Close()
-
 	if err := os.MkdirAll(k.kepubsDir(), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -123,10 +119,9 @@ func (k *kepubStore) write(ctx context.Context, book epubMeta) error {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName) // no-op once the rename below succeeds
 
-	// *zip.Reader satisfies fs.FS, which is exactly what Convert consumes.
-	if err := k.conv.Convert(ctx, tmp, &zr.Reader); err != nil {
+	if err := k.convertTo(ctx, tmp, book); err != nil {
 		tmp.Close()
-		return fmt.Errorf("convert: %w", err)
+		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp: %w", err)
@@ -135,5 +130,33 @@ func (k *kepubStore) write(ctx context.Context, book epubMeta) error {
 		return fmt.Errorf("rename: %w", err)
 	}
 	slog.Info("kepubified", "title", book.Title, "uuid", book.UUID)
+	return nil
+}
+
+// convertInMemory converts book without touching the cache. It is the fallback
+// when the cache dir is unwritable: the sync entitlement already advertised
+// KEPUB, and the Kobo opens anything it downloaded under that format with its
+// strict-XHTML kepub renderer, so serving the raw EPUB instead shows blank pages
+// for books whose content documents are not well-formed XML.
+func (k *kepubStore) convertInMemory(ctx context.Context, book epubMeta) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := k.convertTo(ctx, &buf, book); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// convertTo writes the KEPUB form of book's EPUB to w.
+func (k *kepubStore) convertTo(ctx context.Context, w io.Writer, book epubMeta) error {
+	zr, err := zip.OpenReader(book.FilePath)
+	if err != nil {
+		return fmt.Errorf("open epub: %w", err)
+	}
+	defer zr.Close()
+
+	// *zip.Reader satisfies fs.FS, which is exactly what Convert consumes.
+	if err := k.conv.Convert(ctx, w, &zr.Reader); err != nil {
+		return fmt.Errorf("convert: %w", err)
+	}
 	return nil
 }

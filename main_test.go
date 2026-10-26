@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -49,3 +50,16 @@ func TestRandomToken_unique(t *testing.T) {
 	}
 }
 
+
+func TestCheckWritable(t *testing.T) {
+	if err := checkWritable(filepath.Join(t.TempDir(), "new", "cache")); err != nil {
+		t.Errorf("fresh dir: %v", err)
+	}
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkWritable(file); err == nil {
+		t.Error("want error when the cache path is a regular file")
+	}
+}

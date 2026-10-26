@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -433,15 +434,26 @@ func (s *server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	filename := filepath.Base(path)
 
-	// Serve a converted KEPUB when enabled. On any conversion error we fall back
-	// to the original EPUB so a download never fails outright.
+	// Serve a converted KEPUB when enabled. If the cache can't be written we
+	// still convert, just in memory; only when conversion itself fails do we fall
+	// back to the original EPUB so a download never fails outright.
 	if s.kepub != nil {
 		book := epubMeta{UUID: strings.ToLower(id), FilePath: path, Title: filename}
-		if kp, err := s.kepub.convert(r.Context(), book); err == nil {
+		kp, err := s.kepub.convert(r.Context(), book)
+		if err == nil {
 			path = kp
 			filename = kepubFilename(filename)
 		} else {
-			slog.Warn("kepub conversion failed, serving original epub", "id", id, "err", err)
+			slog.Warn("kepub cache write failed, converting in memory", "id", id, "cache_dir", s.cfg.cacheDir, "err", err)
+			data, err := s.kepub.convertInMemory(r.Context(), book)
+			if err == nil {
+				filename = kepubFilename(filename)
+				w.Header().Set("Content-Type", "application/epub+zip")
+				w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
+				http.ServeContent(w, r, filename, time.Now(), bytes.NewReader(data))
+				return
+			}
+			slog.Error("kepub conversion failed, serving original epub", "id", id, "err", err)
 		}
 	}
 
