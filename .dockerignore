@@ -3,3 +3,5 @@
 *.epub
 simple-kobo-sync-service
 .env
+web/node_modules
+web/dist

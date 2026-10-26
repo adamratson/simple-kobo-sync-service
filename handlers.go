@@ -32,6 +32,15 @@ func (s *server) handleLibraryState(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(req.ReadingStates[0], &state); err != nil {
 		state = map[string]any{}
 	}
+	var rs readingState
+	if err := json.Unmarshal(req.ReadingStates[0], &rs); err == nil {
+		s.activity.recordProgress(strings.ToLower(id), readingProgress{
+			Percent:              rs.CurrentBookmark.ProgressPercent,
+			Status:               rs.StatusInfo.Status,
+			SpentReadingMinutes:  rs.Statistics.SpentReadingMinutes,
+			RemainingTimeMinutes: rs.Statistics.RemainingTimeMinutes,
+		})
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	state["EntitlementId"] = id
 	state["ReadingStateModified"] = now
@@ -291,6 +300,7 @@ func (s *server) handleLibrarySync(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, syncItem{NewEntitlement: s.buildEntitlement(book, now)})
 	}
+	s.activity.recordSync(r.UserAgent(), len(items))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("x-kobo-sync", "done")
@@ -433,6 +443,13 @@ func (s *server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filename := filepath.Base(path)
+	title := strings.TrimSuffix(filename, filepath.Ext(filename))
+	if meta, err := readEpubMeta(path); err == nil {
+		title = meta.Title
+	}
+	// Recorded up front: the device only asks once it has decided to fetch the
+	// book, and a dropped transfer is retried on the next sync anyway.
+	s.activity.recordDownload(strings.ToLower(id), title)
 
 	// Serve a converted KEPUB when enabled. If the cache can't be written we
 	// still convert, just in memory; only when conversion itself fails do we fall

@@ -140,6 +140,19 @@ func (m *metadataStore) enrich(b epubMeta) epubMeta {
 	return applyCached(b, cm, cm.CoverFile != "")
 }
 
+// cachedOnly merges any cached enrichment into b without network I/O, for
+// callers like the web UI that must not trigger Hardcover lookups. known reports
+// whether Hardcover has been consulted for this book yet; found whether it matched.
+func (m *metadataStore) cachedOnly(b epubMeta) (enriched epubMeta, known, found bool) {
+	m.mu.Lock()
+	cm, ok := m.cache[b.UUID]
+	m.mu.Unlock()
+	if !ok {
+		return b, false, false
+	}
+	return applyCached(b, cm, m.coverExists(b.UUID)), true, cm.Found
+}
+
 // ensureCover re-downloads a cover that was cached before but has since been
 // deleted from disk, so removing a JPEG on its own is enough to refresh it on the
 // next sync. It prefers the URL stored in the cache (no Hardcover round-trip) and

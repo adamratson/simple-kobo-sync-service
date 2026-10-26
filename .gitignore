@@ -7,3 +7,9 @@ hardcover-cache.json
 covers/
 
 *.out
+activity.json
+
+web/node_modules/
+# Built UI is embedded into the binary; only the placeholder is tracked.
+web/dist/*
+!web/dist/.gitkeep

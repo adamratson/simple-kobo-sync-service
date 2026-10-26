@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
@@ -17,17 +18,22 @@ type config struct {
 	hardcoverAPIKey string // optional; when empty, Hardcover metadata enrichment is disabled
 	cacheDir        string // writable dir for the Hardcover metadata cache, cached covers, and converted kepubs
 	kepubify        bool   // when true, EPUBs are converted to Kobo's KEPUB format before download
+	uiPassword      string // optional; when set, the web UI and /api require HTTP basic auth with this password
+	ui              fs.FS  // built web UI assets (index.html at the root); nil disables the UI
 }
 
 type server struct {
-	cfg   config
-	mux   *http.ServeMux
-	store *metadataStore // nil when Hardcover enrichment is disabled
-	kepub *kepubStore    // nil when kepub conversion is disabled
+	cfg      config
+	mux      *http.ServeMux
+	store    *metadataStore // nil when Hardcover enrichment is disabled
+	kepub    *kepubStore    // nil when kepub conversion is disabled
+	activity *activityStore // device syncs, downloads, reading progress; shown in the web UI
+
+	epubWritable bool // whether the web UI can add/remove books in epubDir
 }
 
 func newServer(cfg config) *server {
-	s := &server{cfg: cfg, mux: http.NewServeMux()}
+	s := &server{cfg: cfg, mux: http.NewServeMux(), activity: newActivityStore(cfg.cacheDir)}
 	if cfg.hardcoverAPIKey != "" {
 		s.store = newMetadataStore(cfg.cacheDir, newHardcoverClient(cfg.hardcoverAPIKey))
 	}
@@ -82,7 +88,9 @@ func (s *server) routes() {
 		http.NotFound(w, r)
 	})
 
-	// Anything outside the token prefix gets a 404 with a helpful log line.
+	s.apiRoutes()
+
+	// Anything outside the token prefix and the web UI gets a 404 with a helpful log line.
 	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("request outside kobo prefix", "method", r.Method, "path", r.URL.RequestURI())
 		http.NotFound(w, r)

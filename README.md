@@ -24,6 +24,19 @@ docker compose up -d
 
 3. Save, eject, and press the Sync button on the device.
 
+## Web UI
+
+Open `http://<your-server-ip>:8080/` in a browser to:
+
+- upload EPUBs (drag and drop, several at once) and delete them,
+- browse the library with covers, series, and Hardcover metadata,
+- see when the Kobo last synced, which books it has downloaded, and your reading progress,
+- copy the `api_endpoint` line for the device config.
+
+Uploads and deletes need the library folder to be writable. Set `KOBO_UI_PASSWORD` to put the UI behind a password; the Kobo API is unaffected (it's guarded by `KOBO_TOKEN`). Sync activity is stored in `activity.json` in the cache dir.
+
+Deleting a book only removes it from the server — the Kobo keeps any copy it already downloaded.
+
 ## Environment variables
 
 | Variable | Default | Required | Description |
@@ -32,6 +45,7 @@ docker compose up -d
 | `KOBO_EXTERNAL_URL` | — | **Yes** | Full base URL the Kobo device can reach, e.g. `http://192.168.0.3:8080`. |
 | `KOBO_EPUB_DIR` | `.` | No | Directory containing `.epub` files to serve. |
 | `KOBO_ADDR` | `:8080` | No | Listen address, e.g. `0.0.0.0:9000`. |
+| `KOBO_UI_PASSWORD` | unset | No | When set, the web UI and `/api` require HTTP basic auth with this password (any username). |
 | `KOBO_DEBUG` | unset | No | Set to any non-empty value to log all request headers and bodies for unmapped endpoints. |
 | `KOBO_KEPUBIFY` | `1` (on) | No | EPUBs are converted to Kobo's KEPUB format before download so the device applies its native reading features (page turns, statistics). Set to `0`/`false`/`off` to serve raw EPUBs instead. |
 | `HARDCOVER_API_KEY` | unset | No | API key for [Hardcover](https://hardcover.app/account/api). When set, books are enriched with description, series, publisher, publication date, genres, and cover art on first sync. |
@@ -49,7 +63,10 @@ By default each EPUB is converted to Kobo's KEPUB format (using [kepubify](https
 
 ## Building from source
 
+The web UI is embedded in the binary, so build it first (Node 22+):
+
 ```sh
+(cd web && npm ci && npm run build)
 go build -o kobo-sync .
 KOBO_TOKEN=mysecret KOBO_EPUB_DIR=/path/to/epubs ./kobo-sync
 ```
@@ -64,11 +81,16 @@ docker pull ghcr.io/adamratson/simple-kobo-sync-service:latest
 
 ### Volume permissions
 
-The distroless image runs as uid `65532` (`nonroot`). Ensure your EPUB directory is readable by that user:
+The distroless image runs as uid `65532` (`nonroot`). Ensure your EPUB directory is readable by that user, and writable if you want to upload from the web UI:
 
 ```sh
-chmod o+rx /path/to/your/epubs
+chmod o+rx /path/to/your/epubs           # read-only
+sudo chown 65532:65532 /path/to/your/epubs  # uploads from the web UI
 ```
+
+## Developing the web UI
+
+Run the Go server on `:8080`, then `cd web && npm run dev`; Vite serves the UI with hot reload and proxies `/api` to the Go server.
 
 ## Releasing
 

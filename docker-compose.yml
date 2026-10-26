@@ -12,8 +12,12 @@ services:
       # Optional: enables Hardcover metadata enrichment (description, series, publisher, covers).
       HARDCOVER_API_KEY: ${HARDCOVER_API_KEY:-}
       HARDCOVER_CACHE_DIR: /data/cache
+      # Optional: require this password (any username) for the web UI.
+      KOBO_UI_PASSWORD: ${KOBO_UI_PASSWORD:-}
     volumes:
-      - ${EPUB_DIR:-./epubs}:/data/epubs:ro
+      # Writable so books can be uploaded and deleted from the web UI (the folder
+      # must be writable by uid 65532). Append :ro to make the library read-only.
+      - ${EPUB_DIR:-./epubs}:/data/epubs
       # Writable cache for fetched Hardcover metadata, cover images, and converted kepubs.
       - ${CACHE_DIR:-./cache}:/data/cache
     restart: unless-stopped

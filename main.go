@@ -18,6 +18,7 @@ func main() {
 	hardcoverAPIKey := envOr("HARDCOVER_API_KEY", "")
 	cacheDir := envOr("HARDCOVER_CACHE_DIR", epubDir)
 	kepubify := !isFalsy(os.Getenv("KOBO_KEPUBIFY")) // on unless explicitly disabled
+	uiPassword := envOr("KOBO_UI_PASSWORD", "")
 
 	if token == "" {
 		suggested := randomToken()
@@ -40,6 +41,8 @@ func main() {
 		hardcoverAPIKey: hardcoverAPIKey,
 		cacheDir:        cacheDir,
 		kepubify:        kepubify,
+		uiPassword:      uiPassword,
+		ui:              webUI(),
 	})
 
 	slog.Info("kobo-sync starting", "addr", addr, "epub_dir", epubDir)
@@ -59,6 +62,13 @@ func main() {
 		slog.Info("hardcover metadata enrichment enabled", "cache_dir", cacheDir)
 	} else {
 		slog.Info("hardcover metadata enrichment disabled", "hint", "set HARDCOVER_API_KEY to enable")
+	}
+	if srv.cfg.ui == nil {
+		slog.Warn("web UI not built; run `npm ci && npm run build` in web/ before `go build`")
+	} else if uiPassword == "" {
+		slog.Info("web UI enabled", "url", externalURL+"/", "hint", "set KOBO_UI_PASSWORD to require a password")
+	} else {
+		slog.Info("web UI enabled (password protected)", "url", externalURL+"/")
 	}
 	slog.Info("set in .kobo/Kobo/Kobo eReader.conf under [OneStoreServices]",
 		"api_endpoint", externalURL+"/kobo/"+token,
